@@ -1,0 +1,24 @@
+{
+  "name": "ai-shell-cli",
+  "version": "1.0.0",
+  "description": "Natural language → shell command suggestions (Python core)",
+  "bin": {
+    "aishell": "aishell.js"
+  },
+  "files": [
+    "ai_shell_cli.py",
+    "aishell.js"
+  ],
+  "keywords": [
+    "cli",
+    "openai",
+    "shell",
+    "bash"
+  ],
+  "author": "Antony J Ingram",
+  "license": "SEE LICENSE IN LICENSE",
+  "dependencies": {
+    "package": "^1.0.1",
+    "package.json": "^0.0.0"
+  }
+}
