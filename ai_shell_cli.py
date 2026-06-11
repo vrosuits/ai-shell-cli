@@ -10,21 +10,21 @@ the OpenAI API.
 
 import os
 import sys
-import json
 from textwrap import indent
 
-import openai
+from openai import OpenAI, OpenAIError
 
 # ── Configuration ────────────────────────────────────
-MODEL       = "gpt-4o"            # or another model ID you own
-TEMP        = 0.1                 # keep answers deterministic
-MAX_TOKENS  = 256
+MODEL = os.getenv("OPENAI_MODEL", "gpt-5.5")
+REASONING_EFFORT = os.getenv("OPENAI_REASONING_EFFORT", "low")
+TEXT_VERBOSITY = os.getenv("OPENAI_TEXT_VERBOSITY", "low")
+MAX_OUTPUT_TOKENS = int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "1024"))
 
-API_KEY     = os.getenv("OPENAI_API_KEY")
+API_KEY = os.getenv("OPENAI_API_KEY")
 if not API_KEY:
     sys.exit("💥  OPENAI_API_KEY environment variable is missing.")
 
-openai.api_key = API_KEY
+client = OpenAI(api_key=API_KEY)
 
 SYSTEM_PROMPT = """\
 You are an expert Unix system administrator.
@@ -34,21 +34,60 @@ Include a one‑line comment after each command preceded by “# ”.
 """
 
 # ── Core helper ───────────────────────────────────────
-def get_suggestions(query: str) -> str:
-    completion = openai.ChatCompletion.create(
-        model   = MODEL,
-        messages = [
-            {"role": "system",    "content": SYSTEM_PROMPT},
-            {"role": "user",      "content": query}
-        ],
-        temperature = TEMP,
-        max_tokens  = MAX_TOKENS,
+def response_error(response) -> str:
+    refusals = [
+        content.refusal
+        for item in response.output
+        if item.type == "message"
+        for content in item.content
+        if content.type == "refusal"
+    ]
+    if refusals:
+        return f"The model refused the request: {' '.join(refusals)}"
+
+    if response.error:
+        return f"{response.error.code}: {response.error.message}"
+
+    reason = (
+        response.incomplete_details.reason
+        if response.incomplete_details
+        else None
     )
-    return completion.choices[0].message.content.strip()
+    if reason == "max_output_tokens":
+        return (
+            "The response used the entire output-token budget before producing "
+            "final text. Increase OPENAI_MAX_OUTPUT_TOKENS."
+        )
+    if reason == "content_filter":
+        return "The response was stopped by the content filter."
+
+    return (
+        f"The API returned no text (status={response.status}, "
+        f"model={response.model}, response_id={response.id})."
+    )
+
+
+def get_suggestions(query: str) -> str:
+    request = {
+        "model": MODEL,
+        "instructions": SYSTEM_PROMPT,
+        "input": query,
+        "max_output_tokens": MAX_OUTPUT_TOKENS,
+    }
+    if MODEL.startswith(("gpt-5", "o1", "o3", "o4")):
+        request["reasoning"] = {"effort": REASONING_EFFORT}
+    if MODEL.startswith("gpt-5"):
+        request["text"] = {"verbosity": TEXT_VERBOSITY}
+
+    response = client.responses.create(**request)
+    suggestions = response.output_text.strip()
+    if not suggestions:
+        raise RuntimeError(response_error(response))
+    return suggestions
 
 # ── CLI loop ──────────────────────────────────────────
 def main() -> None:
-    print("🔮  Natural‑Language → Shell • type 'exit' to quit")
+    print(f"🔮  Natural‑Language → Shell • model {MODEL} • type 'exit' to quit")
     while True:
         try:
             query = input("\n📝  > ").strip()
@@ -61,7 +100,12 @@ def main() -> None:
         if not query:
             continue
 
-        suggestions = get_suggestions(query)
+        try:
+            suggestions = get_suggestions(query)
+        except (OpenAIError, RuntimeError) as error:
+            print(f"\nOpenAI API error: {error}", file=sys.stderr)
+            continue
+
         print("\n💡  Suggested command(s):")
         print(indent(suggestions, "   "))
         print("\n⚠️  Review carefully before running!")
