@@ -1,134 +1,100 @@
 # ai-shell-cli
-AI shell, just the beginning of an ultimately very powerful tool once I update it past v3 or so, this is v1.0
 
----
+An interactive natural-language script shell using the OpenAI Responses API.
+It generates a structured script artifact, displays it for review, saves it
+with an appropriate extension, and can run it after explicit confirmation.
 
-Below is a minimal but functional prototype you can drop straight into a repo and start using.
-It’s one self‑contained Python file plus a tiny requirements.txt.
-If you later want to ship it to the npm ecosystem you can—guidance follows the code.
+## Features
 
+- Generates Bash, Python, JavaScript, PowerShell, and other script formats.
+- Uses structured OpenAI output instead of parsing Markdown code blocks.
+- Adds a suitable file extension and shebang when known.
+- Saves without silently overwriting existing files.
+- Runs scripts through an installed interpreter without `shell=True`.
+- Requires confirmation before every generated or saved script execution.
+- Opens a normal interactive shell with `:shell`.
+- Reports model refusals, content filtering, and incomplete responses.
 
-#!/usr/bin/env python3
-"""
-Program name$  ai‑shell‑cli, version# 1.0.0
-(c) Copyright 2024 Antony J Ingram, All rights reserved
--------------------------------------------------------
-A simple interactive CLI that accepts natural‑language
-questions and returns suggested *bash* commands using
-the OpenAI API.
-"""
+## Install
 
-import os
-import sys
-import json
-from textwrap import indent
-
-import openai
-
-# ── Configuration ────────────────────────────────────
-MODEL       = "gpt-4o"            # or another model ID you own
-TEMP        = 0.1                 # keep answers deterministic
-MAX_TOKENS  = 256
-
-API_KEY     = os.getenv("OPENAI_API_KEY")
-if not API_KEY:
-    sys.exit("💥  OPENAI_API_KEY environment variable is missing.")
-
-openai.api_key = API_KEY
-
-SYSTEM_PROMPT = """\
-You are an expert Unix system administrator.
-Given a plain‑English request, reply ONLY with a concise list
-of POSIX‑compatible shell commands (no extra prose). 
-Include a one‑line comment after each command preceded by “# ”.
-"""
-
-# ── Core helper ───────────────────────────────────────
-def get_suggestions(query: str) -> str:
-    completion = openai.ChatCompletion.create(
-        model   = MODEL,
-        messages = [
-            {"role": "system",    "content": SYSTEM_PROMPT},
-            {"role": "user",      "content": query}
-        ],
-        temperature = TEMP,
-        max_tokens  = MAX_TOKENS,
-    )
-    return completion.choices[0].message.content.strip()
-
-# ── CLI loop ──────────────────────────────────────────
-def main() -> None:
-    print("🔮  Natural‑Language → Shell • type 'exit' to quit")
-    while True:
-        try:
-            query = input("\n📝  > ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\n👋  Bye!")
-            break
-        if query.lower() in {"exit", "quit"}:
-            print("👋  Bye!")
-            break
-        if not query:
-            continue
-
-        suggestions = get_suggestions(query)
-        print("\n💡  Suggested command(s):")
-        print(indent(suggestions, "   "))
-        print("\n⚠️  Review carefully before running!")
-
-if __name__ == "__main__":
-    main()
-
-
-requirements.txt="openai>=1.14.0"
-
-
-QuickStart.md
-# 1. Clone / copy files
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-export OPENAI_API_KEY="sk-..."         # your key
+```bash
+git clone git@github.com:vrosuits/ai-shell-cli.git
+cd ai-shell-cli
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+export OPENAI_API_KEY="sk-..."
 python ai_shell_cli.py
+```
 
-Publishing to npm (optional)
-Even though the tool is Python, you can expose it as an npm executable so JavaScript developers
-can install it with npm i -g. The trick is to wrap the script with a tiny JS shim:
+Optional configuration:
 
-Create package.json
-{
-  "name": "ai-shell-cli",
-  "version": "1.0.0",
-  "description": "Natural language → shell command suggestions (Python core)",
-  "bin": {
-    "aishell": "aishell.js"
-  },
-  "files": [ "ai_shell_cli.py", "aishell.js" ],
-  "keywords": [ "cli", "openai", "shell", "bash" ],
-  "author": "Antony J Ingram",
-  "license": "SEE LICENSE IN LICENSE"
-}
-Add aishell.js
-#!/usr/bin/env node
-const { spawn } = require("child_process");
-const path = require("path");
-const script = path.join(__dirname, "ai_shell_cli.py");
-const child = spawn("python3", [script], { stdio: "inherit" });
-child.on("exit", code => process.exit(code));
-Make both files executable (chmod +x ai_shell_cli.py aishell.js), log in to npm, then:
+```bash
+export OPENAI_MODEL="gpt-5.5"
+export OPENAI_REASONING_EFFORT="low"
+export OPENAI_TEXT_VERBOSITY="low"
+export OPENAI_MAX_OUTPUT_TOKENS="2048"
+```
 
-in bash
-npm publish         # ships the wrapper; users type `aishell`
-The npm install will still require the user to have Python ≥3.8 and the openai wheel on 
-their PATH, but this pattern keeps the core logic in Python while giving you the convenient 
-npm distribution channel.
+## Interactive Commands
 
-Where to go next
-Add argument parsing (argparse or click) for batch mode (--ask "how to find open ports").
+```text
+:help             Show command help.
+:show             Show the last generated script.
+:save [path]      Save it with the correct extension.
+:run [path]       Confirm and run the generated or specified script.
+:shell            Open an interactive Bash-compatible shell.
+:clear            Forget the current generated script.
+:quit             Exit.
+```
 
-Cache results locally (e.g., ~/.cache/ai-shell-cli) to avoid repeated API calls.
+Any other input is treated as a script-generation request:
 
-Offer an --exec flag that, if confirmed, runs the chosen command.
+```text
+ai-shell> write a bash script that lists files larger than 100 MB
 
-Integrate embeddings for local man‑page search as a privacy‑first fallback when offline.
+Generated bash script:
+   #!/usr/bin/env bash
+   find . -type f -size +100M -print
 
-Enjoy hacking!
+Use :save [path] to save it or :run to execute it.
+```
+
+Examples:
+
+```text
+:save find-large-files
+:run
+:run ./existing_script.py
+:shell
+```
+
+If no filename is supplied, `:save` uses the model's suggested filename. If
+that file already exists, a numbered filename is selected. If an explicit
+destination already exists, the CLI asks before overwriting it.
+
+## Languages
+
+The CLI knows extensions and common interpreters for Bash, POSIX shell, Zsh,
+Fish, Python, JavaScript, TypeScript, PowerShell, Ruby, Perl, PHP, Lua, AWK,
+sed, Go, R, and Windows batch files.
+
+It can also save common non-script source and data formats including C, C++,
+C#, Java, Kotlin, Rust, Swift, SQL, HTML, CSS, JSON, YAML, and TOML. Formats
+without a directly supported runtime are saved but not executed. Unknown
+formats can run only when their source contains a usable shebang.
+
+The required interpreter must be installed and available on `PATH`.
+
+## Safety
+
+Generated code can delete data, change permissions, install software, or send
+information over the network. Always review the displayed script. The CLI
+requires confirmation before execution, but confirmation does not make unsafe
+code safe.
+
+## Test
+
+```bash
+python -m unittest discover -s tests -v
+```
