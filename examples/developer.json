@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "tools": {
+    "disk": {"language": "bash", "code": "df -h"},
+    "python-info": {"language": "python", "code": "import platform\nprint(platform.python_version())\nprint(platform.platform())"},
+    "module-help": {"language": "bash", "code": "python3 -m json.tool --help"}
+  },
+  "commands": {
+    "explain-files": "Generate a read-only Bash script reporting file counts and disk usage for: {input}",
+    "test": "Generate a script to run tests for this project type: {input}"
+  },
+  "skills": {
+    "careful-shell": "Prefer portable shell, quote paths, use explicit error handling, and document side effects in comments. Never include credentials."
+  }
+}

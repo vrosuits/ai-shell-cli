@@ -1,0 +1,19 @@
+# action|reason|case-insensitive regular expression
+# action = block, manual, or minimum automatic level 1..6.
+# Most restrictive match wins. Rules only raise the conservative base threshold.
+# This is a review aid: arbitrary code and shell indirection cannot be made safe by regex.
+manual|Deletion or destructive filesystem operation|\b(rm|rmdir|unlink|shred|Remove-Item|del|erase)\b|\b(shutil\.(rmtree|move)|os\.(remove|unlink))\b
+manual|Privilege escalation or identity change|\b(sudo|su|doas|runas|chown|chgrp|useradd|userdel|usermod)\b
+manual|Disk or filesystem administration|\b(mkfs\w*|fdisk|parted|wipefs|dd|mount|umount|format)\b
+manual|Shutdown or process termination|\b(reboot|shutdown|poweroff|halt|kill|pkill|killall|Stop-Process)\b
+manual|Permission changes|\b(chmod|icacls|Set-Acl)\b
+manual|Git history or working-tree destruction|\bgit\s+(reset|clean|push|checkout|restore)\b
+manual|Package or system configuration changes|\b(apt|apt-get|dnf|yum|pacman|brew|systemctl|service|crontab)\b|\b(pip\w*|npm)\s+(install|uninstall|remove)\b
+manual|Dynamic evaluation or encoded commands|\b(eval|exec|Invoke-Expression|iex|EncodedCommand)\b|\bbase64\b
+manual|Remote shell or transfer|\b(ssh|scp|sftp|rsync|nc|netcat)\b
+manual|Credential access|OPENAI_API_KEY|\.env\b|\.ssh\b|credentials\b
+manual|Download piped to interpreter|\b(curl|wget)\b[^\n]*\|\s*(sh|bash|python\w*)\b
+block|Fork bomb pattern|:\s*\(\s*\)\s*\{\s*:\s*\|\s*:
+manual|Interactive shell cannot be pre-inspected|aishell-interactive-shell
+manual|Overwriting an existing file|aishell-overwrite
+manual|Clock or host identity change|\bdate\s+[^\n]*(--set|-s)\b|\bhostname\s+(?!--help\b|--version\b|-f\b|-s\b|-i\b|-I\b|-d\b)\S+
