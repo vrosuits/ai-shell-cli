@@ -49,7 +49,7 @@ no key, makes no API request, and never executes the displayed code.
 | --- | --- |
 | `classic` | Familiar indented script view; default. |
 | `color` | ANSI 24-bit syntax colors, line numbers, Unicode panels and progress spinner. |
-| `raw` | Source only on stdout. Prompts, status and executed-program stdout go to stderr. |
+| `raw` | Generated source or retrieval/agent JSON on stdout. Prompts, status and executed-program stdout go to stderr. |
 | `summary` | Generation/execution status, filename, language, line and byte counts. `:show` reveals source. |
 
 ```bash
@@ -173,6 +173,25 @@ exports and shell history are not erased by migration.
 The implementation follows the [OpenAI authentication guidance](https://developers.openai.com/api/reference/overview)
 and uses the [cryptography authenticated-encryption primitives](https://cryptography.io/en/latest/hazmat/primitives/aead/).
 
+## Web, images, cloud files and agents
+
+Use `:search QUERY`, `:page URL`, `:images QUERY`, and `:image URL` for retrieval.
+Configure `--cloud-config examples/cloud.json` for read-only rclone-backed cloud
+files, then use `:cloud ls|read|pull ALIAS PATH`.
+
+```bash
+python ai_shell_cli.py --mode color --autonomy 5 \
+  --agent 'Research battery recycling and cite your sources'
+python ai_shell_cli.py --mode color --autonomy 6 --agent-role coder \
+  --agent-tools python --agent 'Compute and verify the first 20 Fibonacci numbers'
+```
+
+Agents have separate capabilities, turn/tool/token/time budgets, source-aware
+results and isolated Python computation. Cloud reads require explicit approval
+before results are sent to the model. Patch proposals require review and are
+never applied by the agent. See [RETRIEVAL.md](RETRIEVAL.md) for setup, supported
+formats/providers, privacy boundaries, costs, examples and limitations.
+
 ## Notification hooks and reviewed changes
 
 Use `--hooks examples/hooks.json` to enable explicit lifecycle notifications and
@@ -261,6 +280,12 @@ or an MCP server. Plugin text and imported modules must be trusted.
 :skill NAME|off        Select generation instructions
 :commands              List prompt templates
 :command NAME INPUT   Generate using a template
+:search QUERY          Search the web with citations
+:page URL              Retrieve webpage text and links
+:images QUERY          Search Wikimedia Commons
+:image URL             Download an inert image artifact
+:cloud ls|read|pull ALIAS PATH   Read configured cloud files
+:agent TASK            Run a bounded tool-using agent
 :clear                 Forget current source
 :quit                  Exit
 ```

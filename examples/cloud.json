@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "rclone_config": "~/.config/rclone/rclone.conf",
+  "remotes": {
+    "documents": "gdrive:AI-Shell-ReadOnly",
+    "assets": "onedrive:AI-Shell-Assets"
+  }
+}

@@ -6,6 +6,7 @@ Natural-language script generator with save and execution support.
 """
 
 import argparse
+import json
 from functools import wraps
 import os
 import re
@@ -28,6 +29,9 @@ from aishell_core.policy import Policy, LEVELS
 from aishell_core.hooks import HookManager
 from aishell_core.sandbox import sandbox_command, limit_resources
 from aishell_core.proposals import propose_patch
+from aishell_core import retrieval
+from aishell_core.cloud import CloudFiles
+from aishell_core.agent import Toolset, Limits, PROFILES, run_agent
 
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.5")
@@ -179,6 +183,12 @@ HELP_TEXT = """Commands:
   :tools                 List tools; :tool NAME to inspect and execute.
   :skills                List skills; :skill NAME|off to select one.
   :commands              List prompt templates; :command NAME INPUT to use.
+  :search QUERY          Search the web with source citations.
+  :page URL              Extract text, links and images from an HTTPS page.
+  :images QUERY          Search Wikimedia Commons images with attribution.
+  :image URL             Download an inert image artifact.
+  :cloud ls|read|pull ALIAS [PATH]   Read configured cloud files.
+  :agent TASK            Run a bounded agent with configured capabilities.
   :clear                 Forget current script.
   :quit                  Exit.
 
@@ -534,6 +544,15 @@ def make_parser():
     parser.add_argument("--hook-log", type=Path, help="Private JSONL activity log (requires --hooks)")
     parser.add_argument("--proposal-dir", type=Path, default=Path.home() / ".local/state/ai-shell-cli/proposals", help="Directory for inert review patches")
     parser.add_argument("--skill", help="Activate a skill from a loaded plugin")
+    parser.add_argument("--cloud-config", type=Path, help="Explicit read-only cloud alias configuration")
+    parser.add_argument("--artifact-dir", type=Path, default=Path.home() / ".local/state/ai-shell-cli/artifacts")
+    parser.add_argument("--agent", help="Run an agent task once, then exit")
+    parser.add_argument("--agent-role", choices=tuple(PROFILES), default="researcher")
+    parser.add_argument("--agent-tools", default="web,images", help="Comma-separated capabilities: web,images,cloud,python,patches")
+    parser.add_argument("--agent-turns", type=int, default=8)
+    parser.add_argument("--agent-calls", type=int, default=20)
+    parser.add_argument("--agent-tokens", type=int, default=24000)
+    parser.add_argument("--agent-seconds", type=int, default=180)
     parser.add_argument("--prompt", help="Generate once, then exit")
     parser.add_argument("--run", action="store_true", help="Execute the generated script through policy (requires --prompt)")
     parser.add_argument("--demo", action="store_true", help="Preview the UI without API access or execution")
@@ -554,6 +573,64 @@ def generate_with_status(query):
     return script
 
 
+
+def run_task(task, args, cloud, artifacts):
+    ui = display()
+    def approve(name, arguments):
+        if name.startswith("cloud_"):
+            ui.message("This tool will share cloud file names/content with the model provider.")
+        ui.message(f"Agent requests {name}: {json.dumps(arguments, ensure_ascii=True)}")
+        if not sys.stdin.isatty():
+            ui.message("Approval unavailable without a terminal; tool declined.")
+            return False
+        return confirmed("Allow this tool call? [y/N] ")
+    limits = Limits(args.agent_turns, args.agent_calls, args.agent_tokens, args.agent_seconds)
+    capabilities = set(filter(None, (value.strip() for value in args.agent_tools.split(','))))
+    client = get_client()
+    toolset = Toolset(client, MODEL, cloud, artifacts, args.proposal_dir, capabilities,
+                      approve, _autonomy, _hooks)
+    with _hooks.action('agent') as activity:
+        result = run_agent(client, MODEL, task, toolset, args.agent_role, limits, ui.message)
+        if result['status'] != 'completed':
+            activity['outcome'] = 'failed'
+    ui.message(f"Agent stopped: {result['status']} | {result['turns']} turns | {result['tool_calls']} tools | {result['reported_tokens']} reported tokens")
+    if ui.mode == 'raw':
+        print(json.dumps(result, ensure_ascii=True))
+    else:
+        ui.message(result['answer'] or 'No final answer produced within the configured limits.')
+        if result['artifacts']:
+            ui.table('Artifacts for review', [(str(i + 1), path) for i, path in enumerate(result['artifacts'])])
+    return 0 if result['status'] == 'completed' else 1
+
+
+def retrieve_command(command, argument, cloud, artifacts):
+    with _hooks.action('retrieve'):
+        if command == ':search':
+            result = retrieval.web_search(get_client(), MODEL, argument)
+        elif command == ':page':
+            result = retrieval.page(argument)
+        elif command == ':images':
+            result = retrieval.image_search(argument)
+        elif command == ':image':
+            result = artifacts.image(argument)
+        else:
+            parts = shlex.split(argument)
+            if len(parts) not in {2, 3} or parts[0] not in {'ls', 'read', 'pull'}:
+                raise ValueError('Use :cloud ls|read|pull ALIAS ["relative/path"]')
+            operation, alias = parts[:2]
+            path = parts[2] if len(parts) == 3 else ''
+            if operation == 'ls':
+                result = cloud.list(alias, path)
+            else:
+                data = cloud.read(alias, path)
+                result = artifacts.save(data) if operation == 'pull' else {'text': data.decode('utf-8'), 'untrusted_content': True}
+    if display().mode == 'raw':
+        print(json.dumps(result, ensure_ascii=True))
+    else:
+        display().message(json.dumps(result, ensure_ascii=False, indent=2))
+    return result
+
+
 def _main(argv=None) -> int:
     global _display, _policy, _autonomy, _env_file, _extensions
     parser = make_parser()
@@ -562,6 +639,8 @@ def _main(argv=None) -> int:
     ui = display()
     if args.run and not args.prompt:
         parser.error("--run requires --prompt")
+    if sum(bool(v) for v in (args.prompt, args.agent, args.demo)) > 1:
+        parser.error("Choose only one of --prompt, --agent, or --demo")
     try:
         if args.subcommand == "key":
             if args.action == "set":
@@ -583,6 +662,10 @@ def _main(argv=None) -> int:
             if args.skill not in _extensions.skills:
                 raise ValueError(f"Unknown skill: {args.skill}")
             _extensions.active_skill = args.skill
+        cloud = CloudFiles(args.cloud_config)
+        artifacts = retrieval.Artifacts(args.artifact_dir)
+        if args.agent:
+            return run_task(args.agent, args, cloud, artifacts)
         if args.demo:
             ui.banner(MODEL, _autonomy)
             show_script(GeneratedScript(language="python", suggested_filename="hello_terminal.py", code='#!/usr/bin/env python3\nfrom pathlib import Path\n\n# A little clarity goes a long way.\nfor path in sorted(Path.cwd().iterdir()):\n    print(f"{path.name:32} {path.stat().st_size:>10,} bytes")\n'))
@@ -659,6 +742,10 @@ def _main(argv=None) -> int:
                     raise ValueError(f"Unknown skill: {argument}")
                 _extensions.active_skill = None if argument == "off" else argument
                 ui.message(f"Skill: {argument}")
+            elif command in {':search', ':page', ':images', ':image', ':cloud'}:
+                retrieve_command(command, argument, cloud, artifacts)
+            elif command == ':agent':
+                run_task(argument, args, cloud, artifacts)
             elif command == ":tool":
                 if argument not in _extensions.tools:
                     raise ValueError(f"Unknown tool: {argument}")
