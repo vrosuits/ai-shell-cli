@@ -1,7 +1,43 @@
 {
   "version": 1,
   "hooks": [
-    {"name": "lifecycle", "enabled": true, "type": "log", "events": ["startup", "shutdown", "error", "before_generate", "after_generate", "before_execute", "after_execute", "before_save", "after_save", "before_shell", "after_shell", "before_patch", "after_patch", "before_plugin_load", "after_plugin_load"]},
-    {"name": "notifications", "enabled": false, "type": "webhook", "events": ["after_generate", "after_execute", "error"], "url": "https://example.com/ai-shell/events", "secret_env": "AISHELL_WEBHOOK_NOTIFICATIONS"}
+    {
+      "name": "lifecycle",
+      "enabled": true,
+      "type": "log",
+      "events": [
+        "startup",
+        "shutdown",
+        "error",
+        "before_generate",
+        "after_generate",
+        "before_execute",
+        "after_execute",
+        "before_save",
+        "after_save",
+        "before_shell",
+        "after_shell",
+        "before_patch",
+        "after_patch",
+        "before_plugin_load",
+        "after_plugin_load",
+        "before_retrieve",
+        "after_retrieve",
+        "before_agent",
+        "after_agent"
+      ]
+    },
+    {
+      "name": "notifications",
+      "enabled": false,
+      "type": "webhook",
+      "events": [
+        "after_generate",
+        "after_execute",
+        "error"
+      ],
+      "url": "https://example.com/ai-shell/events",
+      "secret_env": "AISHELL_WEBHOOK_NOTIFICATIONS"
+    }
   ]
 }

@@ -72,7 +72,7 @@ Every event contains exactly these fields:
 - `id`: fresh 32-character hexadecimal event identifier.
 - `timestamp`: integer Unix seconds.
 - `event`: `startup`, `shutdown`, `error`, or `before_` / `after_` plus an action.
-- Actions: `generate`, `execute`, `save`, `shell`, `patch`, `plugin_load`.
+- Actions: `generate`, `execute`, `save`, `shell`, `patch`, `plugin_load`, `retrieve`, `agent`.
 - `operation`: action name, or `session` for lifecycle/session errors.
 - `outcome`: `started`, `completed`, `failed`, `cancelled`, or `blocked`.
 

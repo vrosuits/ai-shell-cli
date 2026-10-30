@@ -14,7 +14,8 @@
     "examples/*.json",
     "QuickStart.md",
     "CHANGELOG.md",
-    "HOOKS.md"
+    "HOOKS.md",
+    "RETRIEVAL.md"
   ],
   "keywords": [
     "cli",

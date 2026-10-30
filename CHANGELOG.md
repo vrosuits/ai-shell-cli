@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add cited web search, bounded public HTTPS pages, Wikimedia image search and
+  inert raster-image downloads.
+- Add read-only rclone cloud aliases, directory listing, UTF-8 reads and downloads.
+- Add bounded Responses API agents with research/code/review roles, explicit tool
+  capabilities, private-data approvals, isolated Python and review-only patches.
+- Add retrieval/agent hook events, documented budgets, provider setup and tests.
+
 - Add opt-in, versioned notification hooks around lifecycle and important actions.
 - Add HTTPS webhook signatures, strict event validation and a receiver verification
   helper with timestamp and replay checks. No incoming server or response actions.

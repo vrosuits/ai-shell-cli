@@ -9,6 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       AISHELL_REQUIRE_SANDBOX: '1'
+      AISHELL_REQUIRE_RCLONE: '1'
     strategy:
       matrix:
         python-version: ['3.10', '3.12', '3.14']
@@ -21,7 +22,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: sudo apt-get update && sudo apt-get install --yes bubblewrap
+      - run: sudo apt-get update && sudo apt-get install --yes bubblewrap rclone
       - run: python -m pip install -r requirements.txt
       - run: python -m pip check
       - run: python -m unittest discover -s tests -v

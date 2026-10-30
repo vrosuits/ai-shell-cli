@@ -15,9 +15,9 @@ import httpx
 
 EVENTS = frozenset({"startup", "shutdown", "error", *(
     f"{phase}_{action}" for phase in ("before", "after")
-    for action in ("generate", "execute", "save", "shell", "patch", "plugin_load")
+    for action in ("generate", "execute", "save", "shell", "patch", "plugin_load", "retrieve", "agent")
 )})
-OPERATIONS = frozenset({"session", "generate", "execute", "save", "shell", "patch", "plugin_load"})
+OPERATIONS = frozenset({"session", "generate", "execute", "save", "shell", "patch", "plugin_load", "retrieve", "agent"})
 OUTCOMES = frozenset({"started", "completed", "failed", "cancelled", "blocked"})
 
 
