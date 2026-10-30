@@ -15,8 +15,10 @@ class Extensions:
         if path.stat().st_size > 262144:
             raise ValueError("Plugin manifest exceeds 256 KiB.")
         data = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict) or data.get("version") != 1:
+        if not isinstance(data, dict) or type(data.get("version")) is not int or data.get("version") != 1:
             raise ValueError("Plugin manifest requires version: 1.")
+        if set(data) - {"version", "tools", "commands", "skills"}:
+            raise ValueError("Unknown plugin fields; configure notification hooks separately with --hooks.")
         staged = {}
         for category in ("tools", "commands", "skills"):
             entries = data.get(category, {})

@@ -107,7 +107,7 @@ def secure_base_url():
 
 def child_environment():
     # Keep the API credential out of generated programs' inherited environment.
-    return {k: v for k, v in os.environ.items() if not k.startswith("OPENAI_") and k != "AISHELL_PASSPHRASE"}
+    return {k: v for k, v in os.environ.items() if not k.startswith(("OPENAI_", "AISHELL_WEBHOOK_")) and k != "AISHELL_PASSPHRASE"}
 
 
 def setup_key(path, from_env=False):
