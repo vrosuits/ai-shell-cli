@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Add opt-in, versioned notification hooks around lifecycle and important actions.
+- Add HTTPS webhook signatures, strict event validation and a receiver verification
+  helper with timestamp and replay checks. No incoming server or response actions.
+- Add private JSONL event/dispatch/result logs without prompt/source/credential data.
+- Require Bubblewrap isolation for executable plugin tools; no host workspace,
+  home, network, writable host mounts or unsafe fallback. This changes plugin-tool
+  behavior and makes execution unavailable on systems without Linux Bubblewrap.
+- Add `:patch` for inert single-file change proposals requiring human review.
+- Add webhook/security tests and real sandbox integration checks in CI.
+
 ## 2.0.0
 
 - Add classic, true-color highlighted, raw source, and summary display modes.

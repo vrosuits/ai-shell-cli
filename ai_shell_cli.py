@@ -6,6 +6,7 @@ Natural-language script generator with save and execution support.
 """
 
 import argparse
+from functools import wraps
 import os
 import re
 import shlex
@@ -18,12 +19,15 @@ from pathlib import Path
 from typing import Callable, Dict, Optional, Sequence, Tuple
 
 from openai import OpenAI, OpenAIError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 from aishell_core.credentials import load_key, secure_base_url, child_environment, setup_key, read_values, ENV_NAME
 from aishell_core.display import Display, MODES
 from aishell_core.extensions import Extensions
 from aishell_core.policy import Policy, LEVELS
+from aishell_core.hooks import HookManager
+from aishell_core.sandbox import sandbox_command, limit_resources
+from aishell_core.proposals import propose_patch
 
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.5")
@@ -33,6 +37,7 @@ MAX_OUTPUT_TOKENS = int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "2048"))
 
 
 class GeneratedScript(BaseModel):
+    _plugin_tool: bool = PrivateAttr(default=False)
     language: str = Field(
         min_length=1,
         description="The lowercase programming or shell language name."
@@ -161,6 +166,7 @@ HELP_TEXT = """Commands:
   :help                  Show help.
   :show                  Inspect the complete current script.
   :save [path]           Save source (confirm overwrites).
+  :patch path            Propose current source as a review patch; never apply.
   :run [path]            Run using the active autonomy policy.
   :shell                 Open a shell after manual approval.
   :mode MODE             classic, color, raw, summary.
@@ -185,6 +191,20 @@ _policy = None
 _autonomy = 0
 _env_file = Path(".env")
 _extensions = Extensions()
+_hooks = HookManager()
+
+
+def observed(operation):
+    def decorate(function):
+        @wraps(function)
+        def wrapper(*args, **kwargs):
+            with _hooks.action(operation) as activity:
+                result = function(*args, **kwargs)
+                if operation in {"execute", "shell"}:
+                    activity["outcome"] = "cancelled" if result is None else "completed" if result == 0 else "failed"
+                return result
+        return wrapper
+    return decorate
 
 
 def display():
@@ -277,6 +297,7 @@ def response_error(response) -> str:
     )
 
 
+@observed("generate")
 def generate_script(query: str) -> GeneratedScript:
     request = {
         "model": MODEL,
@@ -327,6 +348,7 @@ def unique_path(path: Path) -> Path:
     raise RuntimeError(f"Could not find an available filename for {path}.")
 
 
+@observed("save")
 def save_script(
     script: GeneratedScript,
     destination: Optional[str] = None,
@@ -409,10 +431,12 @@ def confirmed(prompt: str, input_fn: Callable[[str], str] = ask) -> bool:
     return input_fn(prompt).strip().lower() in {"y", "yes"}
 
 
+@observed("execute")
 def execute_path(
     path: Path,
     language: Optional[str] = None,
     input_fn: Callable[[str], str] = ask,
+    sandbox: bool = False,
 ) -> Optional[int]:
     path = path.expanduser().resolve()
     if not path.is_file():
@@ -444,10 +468,21 @@ def execute_path(
         snapshot.write_text(source, encoding="utf-8")
         command = command_for_script(snapshot, detected_language)
         ui.message(f"Running {path.name} with {Path(command[0]).name} …")
-        result = subprocess.run(
-            command, cwd=Path.cwd(), check=False, env=child_environment(),
-            stdout=sys.stderr if ui.mode == "raw" else None,
-        )
+        if sandbox:
+            command = sandbox_command(command, snapshot)
+            # File-backed capture avoids unbounded memory use; display at most 64 KiB.
+            with tempfile.TemporaryFile() as output:
+                result = subprocess.run(command, cwd=Path.cwd(), check=False, env={},
+                                        stdin=subprocess.DEVNULL, stdout=output, stderr=output, timeout=30, preexec_fn=limit_resources)
+                output.seek(0)
+                ui.message(output.read(65536).decode("utf-8", errors="replace"))
+            if result.returncode:
+                ui.message("Plugin sandbox exited unsuccessfully; no unsandboxed retry was attempted.", error=True)
+        else:
+            result = subprocess.run(
+                command, cwd=Path.cwd(), check=False, env=child_environment(),
+                stdout=sys.stderr if ui.mode == "raw" else None,
+            )
     ui.message(f"Process exited with status {result.returncode}.")
     ui.notify()
     return result.returncode
@@ -461,9 +496,10 @@ def execute_generated(
     with tempfile.TemporaryDirectory(prefix="ai-shell-cli-") as temp_dir:
         path = Path(temp_dir) / f"generated{spec.extension}"
         path.write_text(clean_code(script), encoding="utf-8")
-        return execute_path(path, script.language, input_fn)
+        return execute_path(path, script.language, input_fn, sandbox=script._plugin_tool)
 
 
+@observed("shell")
 def open_shell(input_fn: Callable[[str], str] = ask) -> Optional[int]:
     shell = os.getenv("SHELL") or shutil.which("bash") or shutil.which("sh")
     if not shell:
@@ -494,6 +530,9 @@ def make_parser():
     parser.add_argument("--policy", type=Path, help="Explicit replacement dangerous-command policy")
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
     parser.add_argument("--plugin", action="append", default=[], type=Path, help="Load an explicit JSON plugin (repeatable)")
+    parser.add_argument("--hooks", type=Path, help="Explicit versioned notification-hook configuration")
+    parser.add_argument("--hook-log", type=Path, help="Private JSONL activity log (requires --hooks)")
+    parser.add_argument("--proposal-dir", type=Path, default=Path.home() / ".local/state/ai-shell-cli/proposals", help="Directory for inert review patches")
     parser.add_argument("--skill", help="Activate a skill from a loaded plugin")
     parser.add_argument("--prompt", help="Generate once, then exit")
     parser.add_argument("--run", action="store_true", help="Execute the generated script through policy (requires --prompt)")
@@ -515,7 +554,7 @@ def generate_with_status(query):
     return script
 
 
-def main(argv=None) -> int:
+def _main(argv=None) -> int:
     global _display, _policy, _autonomy, _env_file, _extensions
     parser = make_parser()
     args = parser.parse_args(argv)
@@ -538,7 +577,8 @@ def main(argv=None) -> int:
         _autonomy, _env_file = args.autonomy, args.env_file
         _extensions = Extensions()
         for path in args.plugin:
-            _extensions.load(path)
+            with _hooks.action("plugin_load"):
+                _extensions.load(path)
         if args.skill:
             if args.skill not in _extensions.skills:
                 raise ValueError(f"Unknown skill: {args.skill}")
@@ -557,7 +597,7 @@ def main(argv=None) -> int:
                 result = execute_generated(current, input_fn=approval)
                 return 1 if result is None else result
             return 0
-    except (OSError, RuntimeError, ValueError, EOFError) as error:
+    except (OSError, RuntimeError, ValueError, EOFError, subprocess.TimeoutExpired) as error:
         ui.message(str(error), error=True)
         return 1
     except OpenAIError as error:
@@ -625,10 +665,17 @@ def main(argv=None) -> int:
                 tool = _extensions.tools[argument]
                 current = GeneratedScript(language=canonical_language(tool["language"]), suggested_filename=argument, code=tool["code"])
                 current.code = clean_code(current)
+                current._plugin_tool = True
                 show_script(current)
                 execute_generated(current)
             elif command == ":shell":
                 open_shell()
+            elif command == ":patch":
+                if not current or not argument.strip():
+                    raise ValueError("Generate a replacement script, then use :patch WORKSPACE_RELATIVE_FILE.")
+                with _hooks.action("patch"):
+                    path = propose_patch(Path(parse_path_argument(argument)), clean_code(current), args.proposal_dir)
+                ui.message(f"Review patch saved to {path}. Nothing applied; review, test and commit changes separately.")
             elif command == ":save":
                 if not current:
                     raise ValueError("No script has been generated yet.")
@@ -666,10 +713,42 @@ def main(argv=None) -> int:
             return 0
         except KeyboardInterrupt:
             ui.message("Interrupted. Type :quit to exit.")
-        except (OSError, RuntimeError, ValueError) as error:
+        except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
+            _hooks.emit("error", "session", "failed")
             ui.message(str(error), error=True)
         except OpenAIError as error:
             ui.message(f"OpenAI request failed ({type(error).__name__}). Check credentials, connectivity and model access.", error=True)
+
+
+def main(argv=None) -> int:
+    global _hooks
+    args = make_parser().parse_args(argv)
+    if args.hook_log and not args.hooks:
+        make_parser().error("--hook-log requires --hooks")
+    _hooks = HookManager()
+    started = False
+    outcome = "failed"
+    try:
+        # Credential setup does not emit notifications.
+        if args.subcommand != "key":
+            _hooks = HookManager(args.hooks, args.hook_log)
+        _hooks.emit("startup", "session", "started")
+        started = True
+        result = _main(argv)
+        outcome = "completed" if result == 0 else "failed"
+        return result
+    except (OSError, ValueError) as error:
+        display().message(f"Hook configuration/audit error: {type(error).__name__}", error=True)
+        return 1
+    finally:
+        if started:
+            try:
+                if outcome == "failed":
+                    _hooks.emit("error", "session", "failed")
+                _hooks.emit("shutdown", "session", outcome)
+            except (OSError, ValueError):
+                display().message("Hook audit unavailable at shutdown.", error=True)
+        _hooks = HookManager()
 
 
 if __name__ == "__main__":

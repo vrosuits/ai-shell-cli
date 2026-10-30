@@ -290,7 +290,23 @@ class DisplayAndCliTests(unittest.TestCase):
 
 
 class EndToEndTests(unittest.TestCase):
+    def require_sandbox(self):
+        from aishell_core.sandbox import sandbox_command
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / 'probe.sh'
+            source.write_text('exit 0')
+            try:
+                result = subprocess.run(sandbox_command(['/bin/sh', str(source)], source), capture_output=True, timeout=10)
+                available = result.returncode == 0
+            except (RuntimeError, OSError, subprocess.TimeoutExpired):
+                available = False
+        if not available:
+            if os.getenv('AISHELL_REQUIRE_SANDBOX') == '1':
+                self.fail('A working bubblewrap sandbox is required for this test run')
+            self.skipTest('OS does not allow bubblewrap; execution refuses unsafe fallback')
+
     def test_interactive_tools_modes_and_policy(self):
+        self.require_sandbox()
         with tempfile.TemporaryDirectory() as folder:
             manifest = Path(folder) / 'plugin.json'
             manifest.write_text(json.dumps({'version': 1, 'tools': {
@@ -300,13 +316,14 @@ class EndToEndTests(unittest.TestCase):
             commands = ':mode summary\n:autonomy 1\n:tool hello\n:autonomy 6\n:tool danger\nno\n:status\n:quit\n'
             result = subprocess.run([sys.executable, 'ai_shell_cli.py', '--plugin', str(manifest), '--color', 'never'], input=commands, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('integration-ok', result.stdout)
+        self.assertIn('integration-ok', result.stderr)
         self.assertIn('Automatically approved at autonomy 1/6', result.stderr)
         self.assertIn('Execution cancelled', result.stderr)
         self.assertIn('Mode', result.stderr)
         self.assertNotIn('No such file', result.stderr)
 
     def test_raw_tool_child_output_does_not_pollute_source(self):
+        self.require_sandbox()
         with tempfile.TemporaryDirectory() as folder:
             manifest = Path(folder) / 'plugin.json'
             manifest.write_text(json.dumps({'version': 1, 'tools': {

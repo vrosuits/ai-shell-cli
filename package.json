@@ -13,7 +13,8 @@
     "requirements.txt",
     "examples/*.json",
     "QuickStart.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "HOOKS.md"
   ],
   "keywords": [
     "cli",

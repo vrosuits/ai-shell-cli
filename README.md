@@ -173,6 +173,19 @@ exports and shell history are not erased by migration.
 The implementation follows the [OpenAI authentication guidance](https://developers.openai.com/api/reference/overview)
 and uses the [cryptography authenticated-encryption primitives](https://cryptography.io/en/latest/hazmat/primitives/aead/).
 
+## Notification hooks and reviewed changes
+
+Use `--hooks examples/hooks.json` to enable explicit lifecycle notifications and
+private JSONL activity logs. Available hooks cover startup/shutdown, errors, and
+before/after generation, execution, saves, shell launches, patch proposals and
+plugin loading. External notifications use signed HTTPS requests; responses are
+ignored and cannot modify source or configuration. There is no inbound server.
+
+`:patch relative/file.py` writes the current proposed source as an inert review
+patch without changing the target. Apply changes only after human review through
+normal tests, version control and deployment. See [HOOKS.md](HOOKS.md) for the
+stable event schema, authentication, receiver validation, configuration and limits.
+
 ## Tools, skills, commands, plugins and modules
 
 Load explicitly selected JSON manifests; nothing in an arbitrary project's
@@ -210,10 +223,15 @@ A plugin bundles tool scripts, reusable prompt commands, and generation skills:
 Repeat `--plugin` to combine manifests. Names must be lowercase letters,
 digits, `_` or `-`, beginning with a letter; duplicates are errors. Invalid
 manifests load no partial content. Loading reads data only. `:tool NAME` displays
-and executes the tool through the normal policy. Tools take no interpolated
+and executes the tool through the normal policy inside a required Linux
+Bubblewrap sandbox. Tools take no interpolated
 arguments; edit the manifest or use a prompt template for parameterized work.
 Python or other language modules can be called from tool scripts through the
 installed interpreter. Install those modules in that interpreter's environment.
+Install the OS `bubblewrap` package to run tools: they have no host workspace/home
+mounts, network access, writable host filesystem, or interactive input. Their
+output is sanitized and bounded. Sandbox failure never triggers an unsandboxed
+retry. See [HOOKS.md](HOOKS.md) for platform and compatibility restrictions.
 
 `:command NAME INPUT` substitutes `{input}` in a prompt, then generates a script;
 it does not substitute arguments into executable shell text. A selected skill
@@ -227,6 +245,7 @@ or an MCP server. Plugin text and imported modules must be trusted.
 :help                  Full command help
 :show                  Show all current source
 :save [path]           Save with the correct language extension
+:patch path            Write a review patch without applying it
 :run [path]            Execute current or existing script through policy
 :shell                 Open a normal shell (manual approval by default)
 :mode MODE             Switch display mode
